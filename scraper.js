@@ -7,10 +7,9 @@ const BASE_URL = "https://anekdoty.ru";
 /**
  * scrapePage - парсит анекдоты с одной страницы.
  * @param {string} url - URL страницы для парсинга.
- * @param {number} categoryId - ID категории из базы данных.
  * @returns {Array} jokes - Массив объектов с анекдотами.
  */
-async function scrapePage(url, categoryId) {
+async function scrapePage(url) {
   try {
     const { data } = await axios.get(url);
     const $ = cheerio.load(data);
@@ -25,7 +24,6 @@ async function scrapePage(url, categoryId) {
       if (jokeId && content) {
         jokes.push({
           joke_id: jokeId,
-          category_id: categoryId,
           content,
           rating,
         });
@@ -56,7 +54,7 @@ async function scrapeCategory(categoryUrl, categoryId) {
     try {
       const jokes = await scrapePage(url, categoryId);
       if (jokes.length > 0) {
-        await saveJokes(jokes);
+        await saveJokes(jokes, categoryId);
         page++;
       } else {
         hasMore = false;
@@ -71,13 +69,38 @@ async function scrapeCategory(categoryUrl, categoryId) {
 /**
  * saveJokes - сохраняет анекдоты в базу данных.
  * @param {Array} jokes - Массив объектов с анекдотами.
+ * @param {number} categoryId - ID категории из базы данных.
  */
-async function saveJokes(jokes) {
+async function saveJokes(jokes, categoryId) {
   try {
-    await knex("jokes").insert(jokes).onConflict("joke_id").merge(); // Обновлять шутку, если она уже существует
-    console.log(`Saved ${jokes.length} jokes to database.`);
+    await knex("jokes")
+      .insert(
+        jokes.map(({ joke_id, content, rating }) => ({
+          joke_id,
+          content,
+          rating,
+        }))
+      )
+      .onConflict("joke_id")
+      .merge();
+
+    const jokeCategories = jokes.map(({ joke_id }) => ({
+      joke_id,
+      category_id: categoryId,
+    }));
+    await knex("joke_categories")
+      .insert(jokeCategories)
+      .onConflict(["joke_id", "category_id"])
+      .ignore();
+
+    console.log(
+      `Saved ${jokes.length} jokes and their category links to database.`
+    );
   } catch (error) {
-    console.error("Error saving jokes to database:", error.message);
+    console.error(
+      "Error saving jokes or category links to database:",
+      error.message
+    );
   }
 }
 
